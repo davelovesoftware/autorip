@@ -1,0 +1,30 @@
+# Autorip test 
+name: autorip
+
+services:
+  autorip:
+#    image: docker.io/...
+    container_name: autorip
+    build:
+      context: .
+      target: final
+    user: 2000:987
+    group_add:
+      - 24
+# A network is required so MakeMKV can be authorized on container startup
+#    network_mode: none
+    cpuset: "2,3" # limit to a subset of CPU cores so the system remains responsive during ripping
+    devices:
+      - /dev/sr0:/dev/sr0
+      - /dev/sg0:/dev/sg0
+      - /dev/sg1:/dev/sg1
+      - /dev/sg2:/dev/sg2
+    volumes:
+      - ../autorip:/etc/autorip
+      - /mnt/storage/media/video:/mnt/video
+      - /etc/localtime:/etc/localtime:ro
+      - /usr/share/zoneinfo/America/New_York:/etc/timezone:ro
+      - /run/udev:/run/udev:ro
+    environment:
+      - TZ=America/New_York
+    restart: unless-stopped
