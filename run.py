@@ -22,6 +22,39 @@ class TitleInfo:
 	def __repr__(self):
 		return f'{{id: {self.id}, type: {self.type}, label: {self.label}}}'
 
+def cleanTitle(title):
+	# Clean up the title using common patterns
+	regexes = [
+		# Common screen size identifiers
+		(r'4[-_X:]3', ''),
+		(r'16[-_X:]9', ''),
+		(r'16[-_X:]10', ''),
+		(r'IMAX', ''),
+		(r'WIDESCREEN', ''),
+		(r'ULTRAWIDE', ''),
+		# Underscores/Dashes (instead of spaces)
+		(r'[-_]+', ' '),
+		# Country codes
+		(r'\s+US(\s+|$)', ''), # TODO: More country codes
+		# The letter D or word DISC/DISK followed by a number
+		(r'\s+D(I?S[CK])?\s*\d+', ''),
+		# Delux(e)/Collectors Edition
+		(r'((DELUXE?)|(COLLECTORS))\s*EDITION', ''),
+		# Parentheses/Brackets pairs
+		(r'\(\s*?\)', ''),
+		(r'\[\s*?\]', ''),
+		(r'\{\s*?\}', ''),
+		# Collapse whitespace
+		(r'\s+', ' ')
+	]
+
+	# Apply all the regexes
+	for regex in regexes:
+		title = re.sub(regex[0], regex[1], title, flags=re.IGNORECASE)
+
+	# Fially, trim any leading/trailing whitespace
+	return title.strip()
+
 def getInfo(driveNumber):
 	cinfoReg = r'^CINFO:(\d+),(\d+),"?(.+?)"?$'
 	tinfoReg = r'^TINFO:(\d+),(\d+),(\d+),"?(.+?)"?$'
@@ -116,12 +149,13 @@ def rip(driveNumber, drivePath, workDir):
 	if diskInfo is None or trackInfo is None or len(trackInfo) < 1:
 		print('ERROR: Failed to get any track information.')
 		return -1
-	label = trackInfo[0].label if len(trackInfo[0].label) > 1 else diskInfo.label
-	label = label.replace('_', ' ')
+	title = trackInfo[0].label if len(trackInfo[0].label) > 1 else diskInfo.label
+	# Clean the title string
+	title = cleanTitle(title)
 
 	# Run MakeMKV
 	makemkvDrive = 'disc:' + str(driveNumber)
-	print(f'>>> Ripping {label} from {makemkvDrive} into {ripDir} using MakeMKV...')
+	print(f'>>> Ripping {title} from {makemkvDrive} into {ripDir} using MakeMKV...')
 	makemkvProc = subprocess.Popen(['makemkvcon', '--decrypt', MAKEMKV_MINLENGTH, 'mkv', makemkvDrive, 'all', ripDir])
 	makemkvResult = makemkvProc.wait()
 	if makemkvResult != 0:
@@ -134,11 +168,11 @@ def rip(driveNumber, drivePath, workDir):
 	handbrakeArgs = os.environ[HANDBRAKE_ARGS]
 
 	# Make the temp and final filenames
-	transcodeFile = os.path.join(transcodeDir, label) + outputVidExt
-	outputFile = os.path.join(outputVidDir, label) + outputVidExt
+	transcodeFile = os.path.join(transcodeDir, title) + outputVidExt
+	outputFile = os.path.join(outputVidDir, title) + outputVidExt
 
 	# Run Handbrake
-	print(f'>>> Transcoding {label} from {ripDir} into {transcodeFile} using HandBrake...')
+	print(f'>>> Transcoding {title} from {ripDir} into {transcodeFile} using HandBrake...')
 	handbrakeCmd = ['HandBrakeCLI', '-i', ripDir, '-o', transcodeFile]
 	handbrakeCmd.extend(handbrakeArgs.split())
 	handbrakeProc = subprocess.Popen(handbrakeCmd)
@@ -148,6 +182,7 @@ def rip(driveNumber, drivePath, workDir):
 		return -1
 
 	# Copy file to final output
+	# TODO: Handle cases when the file already exists
 	print(f'>>> Copying output from {transcodeFile} to {outputFile}...')
 	shutil.copy(transcodeFile, outputFile)
 
