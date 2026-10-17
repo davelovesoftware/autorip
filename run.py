@@ -60,7 +60,7 @@ def getInfo(driveNumber):
 	tinfoReg = r'^TINFO:(\d+),(\d+),(\d+),"?(.+?)"?$'
 
 	# Get the disk info using MakeMKV
-	makemkvDrive = 'disc:' + str(driveNumber)
+	makemkvDrive = f'disc:{driveNumber}'
 	print(f'>>> Getting disk info (using MakeMKV) from {makemkvDrive}...')
 	makemkvProc = subprocess.Popen(['makemkvcon', '--robot', MAKEMKV_MINLENGTH, 'info', makemkvDrive], stdout = subprocess.PIPE)
 	makemkvResult = makemkvProc.wait()
