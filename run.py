@@ -162,7 +162,7 @@ def rip(driveNumber, drivePath, workDir):
 	(diskInfo, trackInfo) = getInfo(driveNumber)
 	if diskInfo is None or trackInfo is None or len(trackInfo) < 1:
 		print('ERROR: Failed to get any track information.')
-		return -1
+		return
 	title = trackInfo[0].label if len(trackInfo[0].label) > 1 else diskInfo.label
 	# Clean the title string
 	title = cleanTitle(title)
@@ -174,7 +174,7 @@ def rip(driveNumber, drivePath, workDir):
 	makemkvResult = makemkvProc.wait()
 	if makemkvResult != 0:
 		print('ERROR: MakeMKV failed, code: {makemkvResult}.')
-		return -1
+		return
 
 	# Get the extension and output directory
 	outputVidDir = os.environ[OUTPUT_VID_DIR]
@@ -193,7 +193,7 @@ def rip(driveNumber, drivePath, workDir):
 	handbrakeResult = handbrakeProc.wait()
 	if handbrakeResult != 0:
 		print('ERROR: HandBrake failed, code: {handbrakeResult}.')
-		return -1
+		return
 
 	# Copy file to final output
 	# TODO: Handle cases when the file already exists
@@ -211,7 +211,7 @@ def rip(driveNumber, drivePath, workDir):
 	print(f'>>> Cleaning up work directories ({ripDir}, {transcodeDir})...')
 	shutil.rmtree(ripDir)
 	shutil.rmtree(transcodeDir)
-	return 0
+	return
 
 ripThreads = {}
 ripLock = threading.Semaphore()
