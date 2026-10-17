@@ -119,6 +119,20 @@ def getInfo(driveNumber):
 					# Track id
 					trackInfo.id = int(attributeValue)
 
+	# Last resort if there is no disk label, use lsblk
+	if diskInfo.label == '':
+		drivePath = f'/dev/sr{driveNumber}'
+		lsblkProc = subprocess.Popen(['lsblk', '-n', '-o', 'LABEL', drivePath], stdout = subprocess.PIPE)
+		lsblkResult = lsblkProc.wait()
+		if lsblkResult != 0:
+			print(f'ERROR blkid failed, code: {blkIdResult}.')
+			return None, None
+		for line in lsblkProc.stdout:
+			line = line.decode().strip()
+			if line != '':
+				driveInfo.label = line
+				break
+
 	# Return the results
 	trackInfo = list(trackInfoById.values())
 	trackInfo.sort(key = lambda x: x.id)
