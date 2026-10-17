@@ -240,6 +240,7 @@ def udevParse(udevStream, rootDir):
 	# Event constants
 	DEVNAME = 'DEVNAME'
 	DISK_EJECT_REQUEST = 'DISK_EJECT_REQUEST'
+	DISK_MEDIA_CHANGE = 'DISK_MEDIA_CHANGE'
 
 	evtData = {}
 
@@ -263,6 +264,13 @@ def udevParse(udevStream, rootDir):
 			if DISK_EJECT_REQUEST in evtData.keys():
 				# This is an eject request
 				print(f'Ignoring eject request event.')
+				evtData = {}
+				continue
+
+			# Ignore events that are not media changes
+			if DISK_MEDIA_CHANGE not in evtData.keys() or evtData[DISK_MEDIA_CHANGE] != '1':
+				# This is not a media change event
+				print(f'Ignoring non-media-change event.')
 				evtData = {}
 				continue
 
