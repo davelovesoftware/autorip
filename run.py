@@ -22,6 +22,37 @@ class TitleInfo:
 	def __repr__(self):
 		return f'{{id: {self.id}, type: {self.type}, label: {self.label}}}'
 
+def filterStream(input, output, filterPattern, invert=False):
+
+	line = []
+	previousWasCarriageReturn = False
+	bytes = input.read(1)
+	while len(bytes) > 0:
+		if bytes[0] == b'\n' and previousWasCarriageReturn:
+			bytes = input.read(1)
+			continue
+
+		if bytes[0] == b'\r':
+			previousWasCarriageReturn = True
+
+		if bytes[0] == b'\r' or bytes[0] == b'\n':
+			text = line.decode()
+
+			print(f'PARSED OUTPUT LINE: {text}')
+
+			# Filters the input stream using the filterPattern and write the reults to output
+			match = re.match(filterPattern, text)
+			if (not invert and match) or (invert and not match):
+				print(text, file=output)
+
+			line = []
+			bytes = input.read(1)
+			continue
+
+		previousWasCarriageReturn = False
+		line.append(bytes[0])
+		bytes = input.read(1)
+
 def cleanTitle(title):
 	# Clean up the title using common patterns
 	regexes = [
@@ -62,7 +93,7 @@ def getInfo(driveNumber):
 	# Get the disk info using MakeMKV
 	makemkvDrive = f'disc:{driveNumber}'
 	print(f'>>> Getting disk info (using MakeMKV) from {makemkvDrive}...')
-	makemkvProc = subprocess.Popen(['makemkvcon', '--robot', MAKEMKV_MINLENGTH, 'info', makemkvDrive], stdout = subprocess.PIPE)
+	makemkvProc = subprocess.Popen(['makemkvcon', '--robot', MAKEMKV_MINLENGTH, 'info', makemkvDrive], stdout=subprocess.PIPE)
 	makemkvResult = makemkvProc.wait()
 	if makemkvResult != 0:
 		print(f'ERROR MakeMKV failed, code: {makemkvResult}.')
@@ -122,7 +153,7 @@ def getInfo(driveNumber):
 	# Last resort if there is no disk label, use lsblk
 	if diskInfo.label == '':
 		drivePath = f'/dev/sr{driveNumber}'
-		lsblkProc = subprocess.Popen(['lsblk', '-n', '-o', 'LABEL', drivePath], stdout = subprocess.PIPE)
+		lsblkProc = subprocess.Popen(['lsblk', '-n', '-o', 'LABEL', drivePath], stdout=subprocess.PIPE)
 		lsblkResult = lsblkProc.wait()
 		if lsblkResult != 0:
 			print(f'ERROR blkid failed, code: {blkIdResult}.')
@@ -189,8 +220,17 @@ def rip(driveNumber, drivePath, workDir):
 	print(f'>>> Transcoding {title} from {ripDir} into {transcodeFile} using HandBrake...')
 	handbrakeCmd = ['HandBrakeCLI', '-i', ripDir, '-o', transcodeFile]
 	handbrakeCmd.extend(handbrakeArgs.split())
-	handbrakeProc = subprocess.Popen(handbrakeCmd)
+	handbrakeProc = subprocess.Popen(handbrakeCmd, stdout=subprocess.PIPE)
+
+	# Start the handbrake output filter thread
+	filterThread = threading.Thread(target=filterStream, args=(handbrakeProc.stdout, sys.stdout, r'Encoding: task.+\d{2}\.[1-9]\d.+ETA', True))
+	filterThread.daemon = True
+	filterThread.start()
+
+	# Start the handbrake process
 	handbrakeResult = handbrakeProc.wait()
+
+	# Check the handbrake process result
 	if handbrakeResult != 0:
 		print('ERROR: HandBrake failed, code: {handbrakeResult}.')
 		return
@@ -295,7 +335,7 @@ def main():
 	logFile = f'{rootDir}/autorip.log'
 
 	# Copy the output to the log file
-	teeProc = subprocess.Popen(['tee', logFile], stdin = subprocess.PIPE)
+	teeProc = subprocess.Popen(['tee', logFile], stdin=subprocess.PIPE)
 	# Cause tee's stdin to get a copy of our stdin/stdout
 	# (as well as that of any child processes we spawn)
 	os.dup2(teeProc.stdin.fileno(), sys.stdout.fileno())
@@ -313,7 +353,7 @@ def main():
 		return returnCode
 
 	# Start the process to read udev events
-	udevadmProc = subprocess.Popen(['udevadm', 'monitor', '--kernel', '--env', '-s', 'block', '-p'], stdout = subprocess.PIPE)
+	udevadmProc = subprocess.Popen(['udevadm', 'monitor', '--kernel', '--env', '-s', 'block', '-p'], stdout=subprocess.PIPE)
 
 	# Start the thread to parse udev events
 	udevParseThread = threading.Thread(target=udevParse, args=(udevadmProc.stdout, rootDir))
