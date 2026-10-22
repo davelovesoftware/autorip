@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import subprocess, os, sys, threading, signal, shutil, re
+from datetime import datetime
 
 # General constants
 MAKEMKV_MINLENGTH = '--minlength=900' # 15 minutes
@@ -18,9 +19,11 @@ class TitleInfo:
 		self.id = None
 		self.type = ''
 		self.label = ''
+		self.duration = 0
+		self.filename = ''
 
 	def __repr__(self):
-		return f'{{id: {self.id}, type: {self.type}, label: {self.label}}}'
+		return f'{{id: {self.id}, type: {self.type}, label: {self.label}, duration: {self.duration}, filename: {self.filename}}}'
 
 def filterStream(input, output, filterPattern, invert=False):
 
@@ -69,6 +72,8 @@ def cleanTitle(title):
 		(r'\s+US(\s+|$)', ''), # TODO: More country codes
 		# The letter D or word DISC/DISK followed by a number
 		(r'\s+D(I?S[CK])?\s*\d+', ''),
+		# The letter S or word SEASON followed by a number
+		(r'\s+S(EASON)?\s*\d+', ''),
 		# Delux(e)/Collectors Edition
 		(r'((DELUXE?)|(COLLECTORS))\s*EDITION', ''),
 		# Parentheses/Brackets pairs
@@ -146,9 +151,20 @@ def getInfo(drivePath):
 				case 2:
 					# Track name/label
 					trackInfo.label = attributeValue
+				case 9:
+					# Duration
+					date = datetime.strptime(attributeValue , '%H:%M:%S')
+					trackInfo.duration = (date.hour * 360) + (date.minute * 60) + date.second
 				case 24:
 					# Track id
 					trackInfo.id = int(attributeValue)
+				case 27:
+					# Video file name
+					trackInfo.filename = attributeValue
+				case 49:
+					# Comment (useable as a backup to the track label)
+					if len(trackInfo.label) < 1:
+						trackInfo.label = attributeValue
 
 	# Last resort if there is no disk label, use lsblk
 	if diskInfo.label == '':
@@ -167,7 +183,7 @@ def getInfo(drivePath):
 	trackInfo = list(trackInfoById.values())
 	if len(trackInfo) > 1:
 		trackInfo.sort(key = lambda x: x.id)
-	print(f'Got disk info: {diskInfo} and track info: {trackInfo}.')
+	print(f'Got disk info: {diskInfo} and track info: {trackInfo}')
 	return diskInfo, trackInfo
 
 def rip(drivePath, workDir):
@@ -194,9 +210,30 @@ def rip(drivePath, workDir):
 	if diskInfo is None or trackInfo is None or len(trackInfo) < 1:
 		print('ERROR: Failed to get any track information.')
 		return
-	title = trackInfo[0].label if len(trackInfo[0].label) > 1 else diskInfo.label
-	# Clean the title string
-	title = cleanTitle(title)
+
+	# Determine if there are multiple titles
+	OFFSET=0.1
+	multipleTitles = False
+	if len(trackInfo) > 2:
+		multipleTitles = True
+		trackInfo.sort(key=lambda x: x.duration, reverse=True)
+		total = sum(map(lambda x: x.duration, trackInfo[1:]))
+		min = total - (total * OFFSET)
+		max = total + (total * OFFSET)
+		if trackInfo[0].duration > min and trackInfo[0].duration < max:
+			# The longest track is actually just all the "real" tracks combined
+			trackInfo = trackInfo[1:]
+	else:
+		# There may be multiple titles in a single title disk (like extras)
+		trackInfo = trackInfo[:1]
+
+	# Set the title
+	title = cleanTitle(diskInfo.label)
+
+	if multipleTitles:
+		print(f'>>>- Multiple titles detected')
+	else:
+		print('>>>- Single title detected')
 
 	# Run MakeMKV
 	makemkvDrive = f'dev:{drivePath}'
@@ -209,36 +246,43 @@ def rip(drivePath, workDir):
 
 	# Get the extension and output directory
 	outputVidDir = os.environ[OUTPUT_VID_DIR]
+	if multipleTitles:
+		outputVidDir = os.path.join(outputVidDir, title)
+		os.makedirs(outputVidDir, exist_ok=True)
 	outputVidExt = os.environ[OUTPUT_VID_EXT]
 	handbrakeArgs = os.environ[HANDBRAKE_ARGS]
 
-	# Make the temp and final filenames
-	transcodeFile = os.path.join(transcodeDir, title) + outputVidExt
-	outputFile = os.path.join(outputVidDir, title) + outputVidExt
+	# Transcode each file in the track list
+	# TODO: Loop twice - once to do the transcoding, once to copy allthe files at the end
+	for track in trackInfo:
+		# Make the temp and final filenames
+		ripFile = os.path.join(ripDir, track.filename)
+		fileName = f'{diskInfo.label} {track.label}' if multipleTitles else title
+		transcodeFile = os.path.join(transcodeDir, fileName) + outputVidExt
 
-	# Run Handbrake
-	print(f'>>> Transcoding {title} from {ripDir} into {transcodeFile} using HandBrake...')
-	handbrakeCmd = ['HandBrakeCLI', '-i', ripDir, '-o', transcodeFile]
-	handbrakeCmd.extend(handbrakeArgs.split())
-	handbrakeProc = subprocess.Popen(handbrakeCmd, stdout=subprocess.PIPE)
+		# Run Handbrake
+		# TODO: If there are multiple files, loop through them
+		print(f'>>> Transcoding {ripFile} to {transcodeFile} using HandBrake...')
+		handbrakeCmd = ['HandBrakeCLI', '-i', ripFile, '-o', transcodeFile]
+		handbrakeCmd.extend(handbrakeArgs.split())
+		handbrakeProc = subprocess.Popen(handbrakeCmd, stdout=subprocess.PIPE)
 
-	# Start the handbrake output filter thread
-	filterThread = threading.Thread(target=filterStream, args=(handbrakeProc.stdout, sys.stdout, r'Encoding: task.+\d{2}\.[1-9]\d.+ETA', True))
-	filterThread.daemon = True
-	filterThread.start()
+		# Start the handbrake output filter thread
+		filterThread = threading.Thread(target=filterStream, args=(handbrakeProc.stdout, sys.stdout, r'Encoding: task.+\d{2}\.[1-9]\d.+ETA', True))
+		filterThread.daemon = True
+		filterThread.start()
 
-	# Start the handbrake process
-	handbrakeResult = handbrakeProc.wait()
+		# Start the handbrake process
+		handbrakeResult = handbrakeProc.wait()
 
-	# Check the handbrake process result
-	if handbrakeResult != 0:
-		print('ERROR: HandBrake failed, code: {handbrakeResult}.')
-		return
+		# Check the handbrake process result
+		if handbrakeResult != 0:
+			print(f'ERROR: HandBrake failed, code: {handbrakeResult}.')
+			return
 
-	# Copy file to final output
-	# TODO: Handle cases when the file already exists
-	print(f'>>> Copying output from {transcodeFile} to {outputFile}...')
-	shutil.copy(transcodeFile, outputFile)
+		# Copy file to final output
+		print(f'>>> Copying output from {transcodeFile} to {outputVidDir}...')
+		shutil.copy(transcodeFile, outputVidDir)
 
 	# Eject
 	print(f'>>> Ejecting drive {drivePath}...')
@@ -288,7 +332,7 @@ def udevParse(udevStream, rootDir):
 		line = line.decode().rstrip()
 		print(line)
 		if line == '':
-			print(f'Handling udev event: {evtData}.')
+			print(f'Handling udev event: {evtData}')
 
 			# Be sure this event has a drive associated
 			if DEVNAME not in evtData.keys():
