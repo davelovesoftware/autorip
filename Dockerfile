@@ -55,7 +55,7 @@ RUN cd /opt/src/makemkv/makemkv-oss && \
 FROM base AS final
 
 # Set runtime environment defaults
-ENV HANDBRAKE_ARGS="--main-feature --markers --optimize --format av_mp4 -e x265 --multi-pass --turbo --quality 20 --audio-lang-list eng --all-audio --aencoder copy --audio-copy-mask dtshd,dts,aac,ac3 --audio-fallback aac --aq 20 --mixdown 5point1 --subtitle-lang-list eng --all-subtitles --native-language eng --subtitle-burned=none --subtitle-default=none --comb-detect --deinterlace"
+ENV HANDBRAKE_ARGS="--markers --optimize --format av_mp4 -e x265 --multi-pass --turbo --quality 20 --audio-lang-list eng --all-audio --aencoder copy --audio-copy-mask dtshd,dts,aac,ac3 --audio-fallback aac --aq 20 --mixdown 5point1 --subtitle-lang-list eng --all-subtitles --subtitle-burned=none --subtitle-default=none --keep-subname --comb-detect --deinterlace"
 ENV OUTPUT_VID_DIR="/mnt/video"
 ENV OUTPUT_VID_EXT=".mp4"
 ENV PYTHONUNBUFFERED=1
@@ -69,7 +69,7 @@ COPY --from=build /usr/bin/mmccextr /usr/bin
 COPY --from=build /usr/lib /usr/lib
 
 # Make the opt folder
-RUN mkdir -p /opt/autorip
+RUN mkdir -p /opt/autorip/app
 
 # Copy shell scripts
 COPY ./*.sh /opt/autorip
@@ -82,10 +82,10 @@ RUN mkdir /.MakeMKV && \
 	chmod a=rw /.MakeMKV/settings.conf
 
 # Copy the program logic
-COPY ./*.py /opt/autorip
-RUN chmod a+x /opt/autorip/*.py
+COPY ./app/* /opt/autorip/app
+RUN chmod -R a+x /opt/autorip
 
 # Set startup
 WORKDIR /etc/autorip
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["/opt/autorip/run.py"]
+CMD ["/opt/autorip/app/run.py"]
