@@ -156,7 +156,7 @@ def getInfo(driveNumber):
 		lsblkProc = subprocess.Popen(['lsblk', '-n', '-o', 'LABEL', drivePath], stdout=subprocess.PIPE)
 		lsblkResult = lsblkProc.wait()
 		if lsblkResult != 0:
-			print(f'ERROR blkid failed, code: {blkIdResult}.')
+			print(f'ERROR blkid failed, code: {lsblkResult}.')
 			return None, None
 		for line in lsblkProc.stdout:
 			line = line.decode().strip()
