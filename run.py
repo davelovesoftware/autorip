@@ -166,7 +166,8 @@ def getInfo(driveNumber):
 
 	# Return the results
 	trackInfo = list(trackInfoById.values())
-	trackInfo.sort(key = lambda x: x.id)
+	if len(trackInfo) > 1:
+		trackInfo.sort(key = lambda x: x.id)
 	print(f'Got disk info: {diskInfo} and track info: {trackInfo}.')
 	return diskInfo, trackInfo
 
