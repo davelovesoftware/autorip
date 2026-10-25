@@ -86,12 +86,12 @@ def cleanTitle(title):
 	# Fially, trim any leading/trailing whitespace
 	return title.strip()
 
-def getInfo(driveNumber):
+def getInfo(drivePath):
 	cinfoReg = r'^CINFO:(\d+),(\d+),"?(.+?)"?$'
 	tinfoReg = r'^TINFO:(\d+),(\d+),(\d+),"?(.+?)"?$'
 
 	# Get the disk info using MakeMKV
-	makemkvDrive = f'disc:{driveNumber}'
+	makemkvDrive = f'dev:{drivePath}'
 	print(f'>>> Getting disk info (using MakeMKV) from {makemkvDrive}...')
 	makemkvProc = subprocess.Popen(['makemkvcon', '--robot', MAKEMKV_MINLENGTH, 'info', makemkvDrive], stdout=subprocess.PIPE)
 	makemkvResult = makemkvProc.wait()
@@ -152,7 +152,6 @@ def getInfo(driveNumber):
 
 	# Last resort if there is no disk label, use lsblk
 	if diskInfo.label == '':
-		drivePath = f'/dev/sr{driveNumber}'
 		lsblkProc = subprocess.Popen(['lsblk', '-n', '-o', 'LABEL', drivePath], stdout=subprocess.PIPE)
 		lsblkResult = lsblkProc.wait()
 		if lsblkResult != 0:
@@ -171,7 +170,7 @@ def getInfo(driveNumber):
 	print(f'Got disk info: {diskInfo} and track info: {trackInfo}.')
 	return diskInfo, trackInfo
 
-def rip(driveNumber, drivePath, workDir):
+def rip(drivePath, workDir):
 	# Rip the disk in this drive
 
 	# TODO: Make this function cancel subprocesses and cleanup if the stop event is set
@@ -191,7 +190,7 @@ def rip(driveNumber, drivePath, workDir):
 	os.mkdir(transcodeDir)
 
 	# Get the name of the track
-	(diskInfo, trackInfo) = getInfo(driveNumber)
+	(diskInfo, trackInfo) = getInfo(drivePath)
 	if diskInfo is None or trackInfo is None or len(trackInfo) < 1:
 		print('ERROR: Failed to get any track information.')
 		return
@@ -200,7 +199,7 @@ def rip(driveNumber, drivePath, workDir):
 	title = cleanTitle(title)
 
 	# Run MakeMKV
-	makemkvDrive = 'disc:' + str(driveNumber)
+	makemkvDrive = f'dev:{drivePath}'
 	print(f'>>> Ripping {title} from {makemkvDrive} into {ripDir} using MakeMKV...')
 	makemkvProc = subprocess.Popen(['makemkvcon', '--decrypt', MAKEMKV_MINLENGTH, 'mkv', makemkvDrive, 'all', ripDir])
 	makemkvResult = makemkvProc.wait()
@@ -257,25 +256,22 @@ def rip(driveNumber, drivePath, workDir):
 ripThreads = {}
 ripLock = threading.Semaphore()
 def ripLocked(drivePath, rootDir):
-	# Parse the drive number
-	driveNumber = int(re.search(r'^/dev/[a-z]+(\d+)$', drivePath).group(1))
-
 	# Get the rip thread lock
 	ripLock.acquire()
 	try:
 		# Check the drive to see if it is in use
-		if driveNumber in ripThreads and ripThreads[driveNumber] is not None and ripThreads[driveNumber].is_alive():
+		if drivePath in ripThreads and ripThreads[drivePath] is not None and ripThreads[drivePath].is_alive():
 			# Device is busy
 			print(f'Device is already in use: {drivePath}. Skipping event.')
 			return 0
 
 		# Save this thread as the active one for this device
-		ripThreads[driveNumber] = threading.current_thread()
+		ripThreads[drivePath] = threading.current_thread()
 	finally:
 		ripLock.release()
 
 	# Start the rip operation
-	return rip(driveNumber, drivePath, rootDir)
+	return rip(drivePath, rootDir)
 
 def udevParse(udevStream, rootDir):
 	# Event constants
