@@ -58,6 +58,7 @@ FROM base AS final
 ENV HANDBRAKE_ARGS="--markers --optimize --format av_mp4 -e x265 --multi-pass --turbo --quality 20 --audio-lang-list eng --all-audio --aencoder copy --audio-copy-mask dtshd,dts,aac,ac3 --audio-fallback aac --aq 20 --mixdown 5point1 --subtitle-lang-list eng --all-subtitles --subtitle-burned=none --subtitle-default=none --keep-subname --comb-detect --deinterlace"
 ENV OUTPUT_VID_DIR="/mnt/video"
 ENV OUTPUT_VID_EXT=".mp4"
+ENV DEVICE_FILTER="/dev/sr\d+"
 ENV PYTHONUNBUFFERED=1
 
 # Copy the MakeMKV and Handbrake executables and generated libs
