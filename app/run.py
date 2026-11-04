@@ -13,6 +13,7 @@ MAKEMKV_MINLENGTH = '--minlength=900' # 15 minutes
 OUTPUT_VID_DIR = 'OUTPUT_VID_DIR'
 OUTPUT_VID_EXT = 'OUTPUT_VID_EXT'
 HANDBRAKE_ARGS = 'HANDBRAKE_ARGS'
+DEVICE_FILTER = 'DEVICE_FILTER'
 
 # The stop event to kill the main thread
 stop = threading.Event()
@@ -288,6 +289,8 @@ def udevParse(udevStream, rootDir):
 	DISK_EJECT_REQUEST = 'DISK_EJECT_REQUEST'
 	DISK_MEDIA_CHANGE = 'DISK_MEDIA_CHANGE'
 
+	deviceFilter = os.environ[DEVICE_FILTER]
+
 	evtData = {}
 
 	print('Reading udev events...')
@@ -297,13 +300,6 @@ def udevParse(udevStream, rootDir):
 		line = line.decode().strip()
 		if line == '':
 			print(f'Handling udev event: {evtData}')
-
-			# Be sure this event has a drive associated
-			if DEVNAME not in evtData.keys():
-				# The device is missing from the event
-				print(f'WARNING: The {DEVNAME} key is missing from the udev event. Skipping event.')
-				evtData = {}
-				continue
 
 			# Ignore eject request events
 			if DISK_EJECT_REQUEST in evtData.keys():
@@ -319,8 +315,22 @@ def udevParse(udevStream, rootDir):
 				evtData = {}
 				continue
 
+			# Be sure this event has a drive associated
+			if DEVNAME not in evtData.keys():
+				# The device is missing from the event
+				print(f'WARNING: The {DEVNAME} key is missing from the udev event. Skipping event.')
+				evtData = {}
+				continue
+
 			# Get the drive path and number
 			drivePath = evtData[DEVNAME]
+
+			# Ignore devices that don't match the filter
+			if re.match(deviceFilter, drivePath) is None:
+				# This device does not match the filter
+				print(f'Device {drivePath} does not match filter {deviceFilter}, ignoring.')
+				evtData = {}
+				continue
 
 			# Start a thread to handle the event
 			ripThread = threading.Thread(target=ripLocked, args=(drivePath, rootDir))
