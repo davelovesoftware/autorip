@@ -8,6 +8,7 @@ import TitleInfo
 
 # General constants
 MAKEMKV_MINLENGTH = '--minlength=900' # 15 minutes
+COLLECTION_MINLENGTH = 6000 # 100 minutes
 
 # Environment variable names
 OUTPUT_VID_DIR = 'OUTPUT_VID_DIR'
@@ -174,12 +175,13 @@ def rip(drivePath, workDir):
 	# Determine if there are multiple titles
 	OFFSET = 0.01
 	multipleTitles = False
+	totalLength = trackInfo[0].duration
 	if len(trackInfo) > 2:
 		print(f'>>>- Multiple titles detected.')
 		multipleTitles = True
-		total = sum(map(lambda x: x.duration, trackInfo[1:]))
-		min = total - (total * OFFSET)
-		max = total + (total * OFFSET)
+		totalLength = sum(map(lambda x: x.duration, trackInfo[1:]))
+		min = totalLength - (totalLength * OFFSET)
+		max = totalLength + (totalLength * OFFSET)
 		if trackInfo[0].duration >= min and trackInfo[0].duration <= max:
 			# The longest track is actually just all the "real" tracks combined
 			print(f'>>>-- Combined track detected (track {trackInfo[0].id}), skipping.')
@@ -217,10 +219,14 @@ def rip(drivePath, workDir):
 		# Make the temp and final filenames
 		ripFile = os.path.join(ripDir, track.filename)
 		fileName = f'{diskInfo.label} {track.label}' if multipleTitles else discInfo.name
-		if diskInfo.season is not None and diskInfo.disc is not None:
+		if diskInfo.season is not None and diskInfo.disc is not None and totalLength >= COLLECTION_MINLENGTH:
 			# If there is a disk and season number we can infer the episode number by assuming each disk has the same number of episodes
 			episode = ((diskInfo.disc - 1) * len(trackInfo)) + trackNum
 			fileName = f'{diskInfo.name} S{diskInfo.season:02d}E{episode:02d}'
+			print(f'>>> Determined episode number: {episode} and made filename {fileName}')
+		else:
+			# Unable to determine episode number
+			print('>>> Unable to determine episode number.')
 		transcodeFile = os.path.join(transcodeDir, fileName) + outputVidExt
 
 		# Run Handbrake
