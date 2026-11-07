@@ -5,6 +5,7 @@ from datetime import datetime
 class TitleInfo:
 	def __init__(self):
 		self.id = None
+		self.mkmkvId = None
 		self.label = None
 		self.duration = None
 		self.filename = None

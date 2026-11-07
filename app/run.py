@@ -104,6 +104,7 @@ def getInfo(drivePath):
 			# Make sure this track is in the dict
 			if trackNum not in trackInfoById:
 				trackInfoById[trackNum] = TitleInfo.TitleInfo()
+				trackInfoById[trackNum].mkmkvId = trackNum
 			trackInfo = trackInfoById[trackNum]
 
 			match attributeId:
@@ -125,7 +126,7 @@ def getInfo(drivePath):
 						trackInfo.label = attributeValue
 
 	# Last resort if there is no disk label, use lsblk
-	if diskInfo.label == '':
+	if diskInfo.label is None:
 		lsblkProc = subprocess.Popen(['lsblk', '-n', '-o', 'LABEL', drivePath], stdout=subprocess.PIPE)
 		lsblkResult = lsblkProc.wait()
 		if lsblkResult != 0:
@@ -195,12 +196,13 @@ def rip(drivePath, workDir):
 
 	# Run MakeMKV
 	makemkvDrive = f'dev:{drivePath}'
-	print(f'>>> Ripping {diskInfo.name} from {makemkvDrive} into {ripDir} using MakeMKV...')
-	makemkvProc = subprocess.Popen(['makemkvcon', '--decrypt', MAKEMKV_MINLENGTH, 'mkv', makemkvDrive, 'all', ripDir])
-	makemkvResult = makemkvProc.wait()
-	if makemkvResult != 0:
-		print('ERROR: MakeMKV failed, code: {makemkvResult}.')
-		return
+	for track in trackInfo:
+		print(f'>>> Ripping {diskInfo.name} track {track.mkmkvId} ({track.label}) from {makemkvDrive} into {ripDir} using MakeMKV...')
+		makemkvProc = subprocess.Popen(['makemkvcon', '--decrypt', 'mkv', makemkvDrive, str(track.mkmkvId), ripDir])
+		makemkvResult = makemkvProc.wait()
+		if makemkvResult != 0:
+			print(f'ERROR: MakeMKV failed, code: {makemkvResult}.')
+			return
 
 	# Get the extension and output directory
 	outputVidDir = os.environ[OUTPUT_VID_DIR]
