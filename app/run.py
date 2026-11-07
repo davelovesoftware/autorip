@@ -5,6 +5,7 @@ from datetime import datetime
 
 import DiskInfo
 import TitleInfo
+import FilePaths
 
 # General constants
 MAKEMKV_MINLENGTH = '--minlength=900' # 15 minutes
@@ -150,7 +151,7 @@ def rip(drivePath, workDir):
 
 	# TODO: Make this function cancel subprocesses and cleanup if the stop event is set
 
-	# Ensure the rip and transcode directories exist and are clean
+	# Step 0: Ensure the rip and transcode directories exist and are clean
 	ripDir = os.path.join(workDir, 'rip')
 	transcodeDir = os.path.join(workDir, 'transcode')
 	if os.path.exists(ripDir):
@@ -164,7 +165,7 @@ def rip(drivePath, workDir):
 	os.mkdir(ripDir)
 	os.mkdir(transcodeDir)
 
-	# Get the name of the track
+	# Step 1: Get the disk metadata
 	(diskInfo, trackInfo) = getInfo(drivePath)
 	if diskInfo is None or trackInfo is None or len(trackInfo) < 1:
 		print('ERROR: Failed to get any track information.')
@@ -175,11 +176,9 @@ def rip(drivePath, workDir):
 
 	# Determine if there are multiple titles
 	OFFSET = 0.01
-	multipleTitles = False
 	totalLength = trackInfo[0].duration
 	if len(trackInfo) > 2:
 		print(f'>>>- Multiple titles detected.')
-		multipleTitles = True
 		totalLength = sum(map(lambda x: x.duration, trackInfo[1:]))
 		min = totalLength - (totalLength * OFFSET)
 		max = totalLength + (totalLength * OFFSET)
@@ -194,47 +193,37 @@ def rip(drivePath, workDir):
 		trackInfo = trackInfo[:1]
 		print('>>>- Single title detected.')
 
-	# Run MakeMKV
+	# Get the extension and output directory
+	outputExt = os.environ[OUTPUT_VID_EXT]
+	outputDir = os.environ[OUTPUT_VID_DIR]
+	outputDir = os.path.join(outputDir, diskInfo.name)
+	if len(trackInfo) > 1 and diskInfo.season is not None:
+		outputDir = os.path.join(outputDir, f'Season {diskInfo.season:02d}')
+	handbrakeArgs = os.environ[HANDBRAKE_ARGS].split()
+
+	# Generate all the paths for every track
+	paths = []
+	for i in range(len(trackInfo)):
+		paths.append(FilePaths.FilePaths())
+		paths[i].buildPaths(ripDir, transcodeDir, outputDir, outputExt, diskInfo, trackInfo, i, totalLength >= COLLECTION_MINLENGTH)
+	print(f'>>> Built paths:\n{"\n".join(map(lambda x: str(x), paths))}')
+
+	# Step 2: Run MakeMKV
 	makemkvDrive = f'dev:{drivePath}'
-	for track in trackInfo:
-		print(f'>>> Ripping {diskInfo.name} track {track.mkmkvId} ({track.label}) from {makemkvDrive} into {ripDir} using MakeMKV...')
-		makemkvProc = subprocess.Popen(['makemkvcon', '--decrypt', 'mkv', makemkvDrive, str(track.mkmkvId), ripDir])
+	for path in paths:
+		track = trackInfo[path.trackIndex]
+		print(f'>>> Ripping {diskInfo.name} track {track.mkmkvId} ({track.label}) from {makemkvDrive} into {path.ripDir} using MakeMKV...')
+		makemkvProc = subprocess.Popen(['makemkvcon', '--decrypt', 'mkv', makemkvDrive, str(track.mkmkvId), path.ripDir])
 		makemkvResult = makemkvProc.wait()
 		if makemkvResult != 0:
 			print(f'ERROR: MakeMKV failed, code: {makemkvResult}.')
 			return
 
-	# Get the extension and output directory
-	outputVidDir = os.environ[OUTPUT_VID_DIR]
-	if multipleTitles:
-		outputVidDir = os.path.join(outputVidDir, diskInfo.name)
-		if diskInfo.season is not None:
-			outputVidDir = os.path.join(outputVidDir, f'Season {diskInfo.season:02d}')
-		os.makedirs(outputVidDir, exist_ok=True)
-	outputVidExt = os.environ[OUTPUT_VID_EXT]
-	handbrakeArgs = os.environ[HANDBRAKE_ARGS].split()
-
-	# Transcode each file in the track list
-	# TODO: Loop twice - once to do the transcoding, once to copy all the files at the end
-	trackNum = 1
-	for track in trackInfo:
-		# Make the temp and final filenames
-		ripFile = os.path.join(ripDir, track.filename)
-		fileName = f'{diskInfo.label} {track.label}' if multipleTitles else discInfo.name
-		if diskInfo.season is not None and diskInfo.disc is not None and totalLength >= COLLECTION_MINLENGTH:
-			# If there is a disk and season number we can infer the episode number by assuming each disk has the same number of episodes
-			episode = ((diskInfo.disc - 1) * len(trackInfo)) + trackNum
-			fileName = f'{diskInfo.name} S{diskInfo.season:02d}E{episode:02d}'
-			print(f'>>> Determined episode number: {episode} and made filename {fileName}')
-		else:
-			# Unable to determine episode number
-			print('>>> Unable to determine episode number.')
-		transcodeFile = os.path.join(transcodeDir, fileName) + outputVidExt
-
+	# Step 3: Transcode each file in the track list
+	for path in paths:
 		# Run Handbrake
-		# TODO: If there are multiple files, loop through them
-		print(f'>>> Transcoding {ripFile} to {transcodeFile} using HandBrake...')
-		handbrakeCmd = ['HandBrakeCLI', '-i', ripFile, '-o', transcodeFile]
+		print(f'>>> Transcoding {path.ripFile} to {path.transcodeFile} using HandBrake...')
+		handbrakeCmd = ['HandBrakeCLI', '-i', path.ripFile, '-o', path.transcodeFile]
 		handbrakeCmd.extend(handbrakeArgs)
 		handbrakeProc = subprocess.Popen(handbrakeCmd, stdout=subprocess.PIPE)
 
@@ -251,14 +240,13 @@ def rip(drivePath, workDir):
 			print(f'ERROR: HandBrake failed, code: {handbrakeResult}.')
 			return
 
-		# Copy file to final output
-		print(f'>>> Copying output from {transcodeFile} to {outputVidDir}...')
-		shutil.copy(transcodeFile, outputVidDir)
+	# Step 4: Move every transcoded track to the output
+	for path in paths:
+		print(f'>>> Moving output from {path.transcodeFile} to {path.outputFile}...')
+		os.makedirs(path.outputDir, exist_ok=True)
+		shutil.move(path.transcodeFile, path.outputFile)
 
-		# Increment the track
-		trackNum += 1
-
-	# Eject
+	# Step 5: Eject
 	print(f'>>> Ejecting drive {drivePath}...')
 	ejectProc = subprocess.Popen(['eject', drivePath])
 	ejectResult = ejectProc.wait()
